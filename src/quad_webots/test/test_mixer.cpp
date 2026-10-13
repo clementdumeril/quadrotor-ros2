@@ -10,8 +10,8 @@ namespace
 // Mavic 2 Pro geometry relative to the centre of mass (config/mavic.yaml).
 Mixer mavic()
 {
-  return Mixer({Rotor{0.1428537, 0.151294, 1}, Rotor{0.1428537, -0.151294, -1},
-                Rotor{-0.089179, 0.127453, -1}, Rotor{-0.089179, -0.127453, 1}},
+  return Mixer({Rotor{0.1155537, 0.151294, 1}, Rotor{0.1155537, -0.151294, -1},
+                Rotor{-0.116479, 0.127453, -1}, Rotor{-0.116479, -0.127453, 1}},
                2.6e-4, 5.2e-6, 576.0);
 }
 }  // namespace
@@ -35,8 +35,8 @@ TEST(Mixer, HoverHasNoTorqueAndCarriesTheSpinSigns)
   EXPECT_LT(s[1], 0.0);
   EXPECT_LT(s[2], 0.0);
   EXPECT_GT(s[3], 0.0);
-  // The centre of mass sits behind the front rotors' lever arm, so the rear rotors carry more.
-  EXPECT_GT(std::abs(s[2]), std::abs(s[0]));
+  // Front and rear arms are almost equal, so the four rotors carry almost the same share.
+  EXPECT_NEAR(std::abs(s[2]) / std::abs(s[0]), 1.0, 0.02);
   EXPECT_NEAR(m.wrench(s).tail<3>().norm(), 0.0, 1e-9);
 }
 

@@ -49,6 +49,9 @@ class Mission(Node):
         self.landing = False
         self.cmd_vel = Twist()
         self.cmd_vel_time = 0.0
+        self.ground_z = 0.0      # resting height, read at takeoff
+        self.still_since = None
+        self.vz = 0.0
 
         self.create_subscription(Odometry, "/quad/odom", self.on_odom, qos_profile_sensor_data)
         self.create_subscription(Twist, "/cmd_vel", self.on_cmd_vel, 10)
@@ -66,6 +69,8 @@ class Mission(Node):
         p = msg.pose.pose.position
         self.pos = np.array([p.x, p.y, p.z])
         self.yaw = yaw_of(msg.pose.pose.orientation)
+        q, v = msg.pose.pose.orientation, msg.twist.twist.linear   # twist is in the body frame
+        self.vz = 2 * (q.x * q.z - q.w * q.y) * v.x + 2 * (q.y * q.z + q.w * q.x) * v.y             + (1 - 2 * (q.x * q.x + q.y * q.y)) * v.z
 
     def on_cmd_vel(self, msg):
         self.cmd_vel = msg
@@ -85,9 +90,10 @@ class Mission(Node):
         if self.flying:
             res.success, res.message = False, "already flying"
             return res
+        self.ground_z = float(self.pos[2])
         self.sp = self.pos.copy()
         self.sp_yaw = self.yaw
-        self.goal = np.array([self.pos[0], self.pos[1], self.takeoff_height])
+        self.goal = np.array([self.pos[0], self.pos[1], self.ground_z + self.takeoff_height])
         self.flying, self.landing = True, False
         self.set_controller(True)
         res.success, res.message = True, f"taking off to {self.takeoff_height:.1f} m"
@@ -98,8 +104,9 @@ class Mission(Node):
         if not self.flying:
             res.success, res.message = False, "not flying"
             return res
-        self.goal = np.array([self.sp[0], self.sp[1], 0.0])
+        self.goal = np.array([self.sp[0], self.sp[1], self.ground_z - 0.05])  # press slightly into the ground
         self.landing = True
+        self.still_since = None
         res.success, res.message = True, "landing"
         self.get_logger().info(res.message)
         return res
@@ -152,14 +159,17 @@ class Mission(Node):
         elif self.goal is not None:
             d = self.goal - self.sp
             n = np.linalg.norm(d)
-            max_step = self.cruise_speed * dt
+            max_step = (min(self.cruise_speed, 0.5) if self.landing else self.cruise_speed) * dt
             self.sp = self.goal.copy() if n <= max_step else self.sp + d * (max_step / n)
 
-        if self.landing and self.pos is not None and self.pos[2] < 0.12:
-            self.flying, self.landing = False, False
-            self.set_controller(False)      # the driver then levels, sinks and stops the motors
-            self.get_logger().info("landed")
-            return
+        if self.landing and self.pos is not None:
+            on_ground = self.pos[2] < self.ground_z + 0.03 and abs(self.vz) < 0.1
+            self.still_since = (self.still_since or time.monotonic()) if on_ground else None
+            if self.still_since and time.monotonic() - self.still_since > 0.5:
+                self.flying, self.landing = False, False
+                self.set_controller(False)      # the driver then stops the motors (on the ground)
+                self.get_logger().info("landed")
+                return
 
         msg = PoseStamped()
         msg.header.stamp = self.get_clock().now().to_msg()

@@ -1,6 +1,8 @@
 #include "quad_webots/mavic_driver.hpp"
 
+#include <algorithm>
 #include <cmath>
+#include <stdexcept>
 #include <vector>
 
 #include <webots/gps.h>
@@ -8,6 +10,7 @@
 #include <webots/inertial_unit.h>
 #include <webots/motor.h>
 #include <webots/robot.h>
+#include <webots/supervisor.h>
 
 namespace quad_webots
 {
@@ -34,21 +37,39 @@ void MavicDriver::init(webots_ros2_driver::WebotsNode * node,
   wb_gps_enable(gps_, step_ms);
   wb_inertial_unit_enable(imu_, step_ms);
   wb_gyro_enable(gyro_, step_ms);
+  // The Webots Propeller model is not used: its thrust followed the motor commands with a lag of
+  // several seconds in our tests (scripts/motor_ident.py), which no controller can handle and
+  // which is not documented. The rotors are modelled here instead (first-order motor, f = k_t w^2,
+  // reaction torque k_q w^2) and their forces are applied through the supervisor API. The
+  // propeller motors stay at zero speed, so Webots adds no thrust of its own.
   for (int i = 0; i < 4; ++i) {
     motors_[i] = wb_robot_get_device(kMotorNames[i]);
     wb_motor_set_position(motors_[i], INFINITY);
     wb_motor_set_velocity(motors_[i], 0.0);
   }
+  if (!wb_robot_get_supervisor()) {
+    RCLCPP_FATAL(node_->get_logger(), "The robot must be a supervisor (world: supervisor TRUE) to apply rotor forces");
+    throw std::runtime_error("robot is not a supervisor");
+  }
+  self_ = wb_supervisor_node_get_self();
 
   // Physical constants come from the Mavic2Pro PROTO (Webots R2025a); see config/mavic.yaml.
   mass_ = node_->declare_parameter("mass", 0.5);
+  hover_thrust_ = mass_ * kGravity;
   max_motor_speed_ = node_->declare_parameter("max_motor_speed", 576.0);
   cmd_timeout_ = node_->declare_parameter("cmd_timeout", 0.3);
   const double k_t = node_->declare_parameter("k_thrust", 2.6e-4);
   const double k_q = node_->declare_parameter("k_torque", 5.2e-6);
-  const auto rx = node_->declare_parameter("rotor_x", std::vector<double>{0.143, 0.143, -0.089, -0.089});
+  const auto rx = node_->declare_parameter("rotor_x", std::vector<double>{0.116, 0.116, -0.116, -0.116});
   const auto ry = node_->declare_parameter("rotor_y", std::vector<double>{0.151, -0.151, 0.127, -0.127});
   const auto spin = node_->declare_parameter("rotor_spin", std::vector<int64_t>{1, -1, -1, 1});
+  // Thrust points in the robot frame (Propeller.centerOfThrust), where the forces are applied.
+  const auto ox = node_->declare_parameter("thrust_point_x", std::vector<double>{0.0549, 0.0549, -0.1772, -0.1772});
+  const auto oy = node_->declare_parameter("thrust_point_y", std::vector<double>{0.1513, -0.1513, 0.1275, -0.1275});
+  const auto oz = node_->declare_parameter("thrust_point_z", std::vector<double>{-0.0028, -0.0028, -0.0320, -0.0320});
+  motor_tau_ = node_->declare_parameter("motor_time_constant", 0.03);
+  k_t_ = k_t;
+  k_q_ = k_q;
   kp_rate_ = toEigen(node_->declare_parameter("kp_rate", std::vector<double>{0.05, 0.05, 0.02}));
   ki_rate_ = toEigen(node_->declare_parameter("ki_rate", std::vector<double>{0.1, 0.1, 0.02}));
   i_limit_ = toEigen(node_->declare_parameter("rate_integral_limit", std::vector<double>{0.05, 0.05, 0.02}));
@@ -56,6 +77,8 @@ void MavicDriver::init(webots_ros2_driver::WebotsNode * node,
   std::array<Rotor, 4> rotors{};
   for (int i = 0; i < 4; ++i) {
     rotors[i] = Rotor{rx.at(i), ry.at(i), static_cast<int>(spin.at(i))};
+    thrust_points_[i] = {ox.at(i), oy.at(i), oz.at(i)};
+    spin_[i] = static_cast<int>(spin.at(i));
   }
   mixer_ = std::make_unique<Mixer>(rotors, k_t, k_q, max_motor_speed_);
 
@@ -71,8 +94,18 @@ void MavicDriver::init(webots_ros2_driver::WebotsNode * node,
       armed_ = true;
     });
 
-  RCLCPP_INFO(node_->get_logger(), "Mavic driver ready: step %.1f ms, hover thrust %.2f N, max %.2f N",
-              dt_ * 1e3, mass_ * kGravity, 4.0 * mixer_->maxThrustPerRotor());
+  raw_sub_ = node_->create_subscription<std_msgs::msg::Float64MultiArray>(
+    "/quad/cmd/motor_speeds_raw", 10, [this](const std_msgs::msg::Float64MultiArray::SharedPtr msg) {
+      for (size_t i = 0; i < 4 && i < msg->data.size(); ++i) {
+        raw_speeds_[i] = std::clamp(msg->data[i], -max_motor_speed_, max_motor_speed_);
+      }
+      last_raw_time_ = node_->get_clock()->now();
+      raw_received_ = true;
+    });
+
+  RCLCPP_INFO(node_->get_logger(),
+              "Mavic driver ready: step %.1f ms, hover thrust %.2f N, max %.2f N, motor time constant %.0f ms",
+              dt_ * 1e3, mass_ * kGravity, 4.0 * mixer_->maxThrustPerRotor(), motor_tau_ * 1e3);
 }
 
 void MavicDriver::readState()
@@ -131,13 +164,59 @@ void MavicDriver::publishState(const rclcpp::Time & stamp)
 Eigen::Vector3d MavicDriver::rateLoop(const Eigen::Vector3d & rates_des, double dt)
 {
   const Eigen::Vector3d err = rates_des - omega_;
-  rate_integral_ = (rate_integral_ + ki_rate_.cwiseProduct(err) * dt).cwiseMax(-i_limit_).cwiseMin(i_limit_);
+  // No integration while the feet touch the ground: the error there is not a model error
+  // and the stored torque would be released at lift-off.
+  if (p_.z() > ground_z_ + 0.05) {
+    rate_integral_ = (rate_integral_ + ki_rate_.cwiseProduct(err) * dt).cwiseMax(-i_limit_).cwiseMin(i_limit_);
+  }
   return kp_rate_.cwiseProduct(err) + rate_integral_;
+}
+
+void MavicDriver::logCenterOfMass()
+{
+  // Identification helper, only when the robot is a supervisor (world: supervisor TRUE):
+  // centre of mass of the whole robot (body, propellers, gimbal) in the body frame.
+  if (!wb_robot_get_supervisor()) {
+    return;
+  }
+  WbNodeRef self = wb_supervisor_node_get_self();
+  const double * c = wb_supervisor_node_get_center_of_mass(self);
+  const double * p = wb_supervisor_node_get_position(self);
+  const double * R = wb_supervisor_node_get_orientation(self);  // row-major 3x3
+  const Eigen::Matrix3d Rm = Eigen::Map<const Eigen::Matrix<double, 3, 3, Eigen::RowMajor>>(R);
+  const Eigen::Vector3d com = Rm.transpose() * (Eigen::Vector3d(c[0], c[1], c[2]) - Eigen::Vector3d(p[0], p[1], p[2]));
+  RCLCPP_INFO(node_->get_logger(), "Centre of mass in the body frame: [%.4f, %.4f, %.4f] m",
+              com.x(), com.y(), com.z());
+
+}
+
+void MavicDriver::applyRotorForces(const std::array<double, 4> & commanded)
+{
+  // First-order motor: w <- w + (w_cmd - w)(1 - exp(-dt/tau)); then thrust and reaction torque.
+  const double a = 1.0 - std::exp(-dt_ / motor_tau_);
+  double yaw_torque = 0.0;
+  for (int i = 0; i < 4; ++i) {
+    rotor_speed_[i] += a * (commanded[i] - rotor_speed_[i]);
+    const double w2 = rotor_speed_[i] * rotor_speed_[i];
+    const double force[3] = {0.0, 0.0, k_t_ * w2};
+    const double offset[3] = {thrust_points_[i][0], thrust_points_[i][1], thrust_points_[i][2]};
+    wb_supervisor_node_add_force_with_offset(self_, force, offset, true);
+    yaw_torque += -spin_[i] * k_q_ * w2;
+  }
+  const double torque[3] = {0.0, 0.0, yaw_torque};
+  wb_supervisor_node_add_torque(self_, torque, true);
 }
 
 void MavicDriver::step()
 {
+  if (!com_logged_) {
+    logCenterOfMass();
+    com_logged_ = true;
+  }
   readState();
+  if (std::isnan(ground_z_)) {
+    ground_z_ = p_.z();
+  }
   const rclcpp::Time now = node_->get_clock()->now();
   publishState(now);
 
@@ -146,17 +225,21 @@ void MavicDriver::step()
     double thrust = cmd_.thrust;
     Eigen::Vector3d rates_des(cmd_.body_rates.x, cmd_.body_rates.y, cmd_.body_rates.z);
     if ((now - last_cmd_time_).seconds() > cmd_timeout_) {
-      // Failsafe: level the body and sink at a small fraction below hover thrust.
+      // Failsafe: level the body and descend at 0.4 m/s, using the hover thrust learned in flight
+      // (so a wrong mass parameter cannot make the drone climb).
       const Eigen::Vector3d z_body = q_ * Eigen::Vector3d::UnitZ();
       const Eigen::Vector3d tilt = q_.conjugate() * z_body.cross(Eigen::Vector3d::UnitZ());
       rates_des = Eigen::Vector3d(4.0 * tilt.x(), 4.0 * tilt.y(), 0.0);
-      thrust = 0.9 * mass_ * kGravity;
+      thrust = hover_thrust_ / kGravity * (kGravity + 2.0 * (-0.4 - v_world_.z()));
       RCLCPP_WARN_THROTTLE(node_->get_logger(), *node_->get_clock(), 2000,
                            "No command for %.2f s: failsafe descent", (now - last_cmd_time_).seconds());
-      if (p_.z() < 0.15 && v_world_.norm() < 0.3) {
+      if (p_.z() < ground_z_ + 0.03 && std::abs(v_world_.z()) < 0.2) {
         armed_ = false;  // on the ground: stop the motors until the next command
         RCLCPP_INFO(node_->get_logger(), "Landed, motors off");
       }
+    } else if (p_.z() > ground_z_ + 0.2 && std::abs(v_world_.z()) < 0.2 && omega_.norm() < 0.3) {
+      // Steady flight: low-pass the commanded thrust as the hover-thrust estimate.
+      hover_thrust_ += 0.002 * (cmd_.thrust - hover_thrust_);
     }
     if (armed_) {
       speeds = mixer_->speeds(thrust, rateLoop(rates_des, dt_));
@@ -164,12 +247,13 @@ void MavicDriver::step()
   } else {
     rate_integral_.setZero();
   }
-
-  for (int i = 0; i < 4; ++i) {
-    wb_motor_set_velocity(motors_[i], speeds[i]);
+  if (raw_received_ && (now - last_raw_time_).seconds() < cmd_timeout_) {
+    speeds = raw_speeds_;
   }
+
+  applyRotorForces(speeds);
   std_msgs::msg::Float64MultiArray m;
-  m.data.assign(speeds.begin(), speeds.end());
+  m.data.assign(rotor_speed_.begin(), rotor_speed_.end());
   motor_pub_->publish(m);
 }
 
