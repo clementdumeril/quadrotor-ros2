@@ -1,0 +1,18 @@
+<?xml version="1.0" ?>
+<robot name="mavic">
+  <webots>
+    <!-- The stack reads the sensors itself; no automatic ROS interfaces for the PROTO devices. -->
+    <device reference="camera"><ros><enabled>false</enabled></ros></device>
+    <device reference="gps"><ros><enabled>false</enabled></ros></device>
+    <device reference="inertial unit"><ros><enabled>false</enabled></ros></device>
+    <device reference="gyro"><ros><enabled>false</enabled></ros></device>
+    <device reference="compass"><ros><enabled>false</enabled></ros></device>
+    <device reference="front left led"><ros><enabled>false</enabled></ros></device>
+    <device reference="front right led"><ros><enabled>false</enabled></ros></device>
+    <device reference="camera roll sensor"><ros><enabled>false</enabled></ros></device>
+    <device reference="camera pitch sensor"><ros><enabled>false</enabled></ros></device>
+    <device reference="camera yaw sensor"><ros><enabled>false</enabled></ros></device>
+
+    <plugin type="quad_webots::MavicDriver" />
+  </webots>
+</robot>

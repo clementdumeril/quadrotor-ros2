@@ -1,0 +1,9 @@
+# Fly to a point in the world frame and hold there.
+geometry_msgs/Point target
+float64 yaw              # [rad]
+float64 tolerance        # [m], goal reached when the distance stays below it
+---
+bool success
+float64 final_distance   # [m]
+---
+float64 distance         # [m], current distance to the target

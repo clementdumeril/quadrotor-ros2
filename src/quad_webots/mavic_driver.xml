@@ -1,0 +1,5 @@
+<library path="quad_webots">
+  <class type="quad_webots::MavicDriver" base_class_type="webots_ros2_driver::PluginInterface">
+    <description>Mavic 2 Pro driver: state publishing, body-rate loop and motor mixer.</description>
+  </class>
+</library>
