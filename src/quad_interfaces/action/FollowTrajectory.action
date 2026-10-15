@@ -1,0 +1,18 @@
+# Fly a closed reference trajectory that starts and ends at rest at its first point.
+# The drone first flies to that point, then the speed ramps up smoothly, holds for the
+# requested laps and ramps down (one extra lap in total for the two ramps).
+string shape                  # "lemniscate" (figure eight) or "circle"
+float64 size                  # lemniscate half-width or circle radius [m]
+float64 max_speed             # top speed along the path [m/s]
+float64 laps                  # laps at top speed (rounded to an integer)
+geometry_msgs/Point start     # first point of the path (the drone flies there first)
+---
+bool success
+float64 rms_error             # position error over the top-speed laps [m]
+float64 max_error             # [m]
+builtin_interfaces/Time start_time   # simulation time at which the path started
+float64 top_speed_start       # top-speed laps, in seconds after start_time
+float64 top_speed_end
+---
+float64 progress              # 0..1
+float64 error                 # current position error [m]

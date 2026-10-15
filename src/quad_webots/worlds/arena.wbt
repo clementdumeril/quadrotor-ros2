@@ -28,6 +28,11 @@ TexturedBackgroundLight {
 RectangleArena {
   floorSize 20 20
   floorTileSize 1 1
+  floorAppearance PBRAppearance {
+    baseColor 0.86 0.86 0.84
+    roughness 1
+    metalness 0
+  }
   wallHeight 0.5
 }
 Mavic2Pro {
@@ -35,11 +40,5 @@ Mavic2Pro {
   name "mavic"
   controller "<extern>"
   supervisor TRUE
-  cameraSlot [
-    Camera {
-      width 400
-      height 240
-      near 0.2
-    }
-  ]
+  cameraSlot []                # no onboard camera: not used by the stack
 }

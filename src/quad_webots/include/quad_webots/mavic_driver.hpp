@@ -10,7 +10,10 @@
 #include <nav_msgs/msg/odometry.hpp>
 #include <rclcpp/rclcpp.hpp>
 #include <sensor_msgs/msg/imu.hpp>
+#include <geometry_msgs/msg/pose_stamped.hpp>
+#include <geometry_msgs/msg/vector3.hpp>
 #include <std_msgs/msg/float64_multi_array.hpp>
+#include <std_msgs/msg/string.hpp>
 #include <tf2_ros/transform_broadcaster.h>
 #include <webots/types.h>
 #include <webots/supervisor.h>
@@ -29,6 +32,8 @@ namespace quad_webots
 //   3. turns thrust + torques into the four propeller speeds (mixer).
 // Before the first command the motors stay off; if commands stop for longer
 // than cmd_timeout the drone levels itself and descends slowly.
+// For tests it also applies an external force (wind, unmodelled payload) published on
+// /quad/disturbance/force, and records the 3D view to a video file on request (/quad/record).
 class MavicDriver : public webots_ros2_driver::PluginInterface
 {
 public:
@@ -42,6 +47,8 @@ private:
   void applyRotorForces(const std::array<double, 4> & commanded);
   void publishState(const rclcpp::Time & stamp);
   Eigen::Vector3d rateLoop(const Eigen::Vector3d & rates_des, double dt);
+  void startRecording(const std::string & file);
+  void updateTrails();
 
   webots_ros2_driver::WebotsNode * node_{nullptr};
   double dt_{0.004};
@@ -84,6 +91,21 @@ private:
   rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr odom_pub_;
   rclcpp::Publisher<sensor_msgs::msg::Imu>::SharedPtr imu_pub_;
   rclcpp::Publisher<std_msgs::msg::Float64MultiArray>::SharedPtr motor_pub_;
+
+  // Test inputs: external force in the world frame [N], and video recording of the 3D view.
+  Eigen::Vector3d disturbance_{Eigen::Vector3d::Zero()};
+  rclcpp::Subscription<geometry_msgs::msg::Vector3>::SharedPtr disturbance_sub_;
+  rclcpp::Subscription<std_msgs::msg::String>::SharedPtr record_sub_;
+  bool recording_{false};
+  // While recording: fixed overview camera, and two polylines drawn in the 3D view, the
+  // reference (/quad/setpoint, grey) and the flown path (blue).
+  rclcpp::Subscription<geometry_msgs::msg::PoseStamped>::SharedPtr setpoint_sub_;
+  Eigen::Vector3d setpoint_{Eigen::Vector3d::Constant(std::nan(""))};
+  static constexpr int kTrailLayers = 5;
+  std::array<WbNodeRef, 2 * kTrailLayers> trail_nodes_{};
+  std::array<WbFieldRef, 2 * kTrailLayers> trail_points_{}, trail_index_{};
+  int trail_count_{0}, trail_tick_{0};
+  std::vector<double> view_position_, view_target_;
   std::unique_ptr<tf2_ros::TransformBroadcaster> tf_;
 };
 

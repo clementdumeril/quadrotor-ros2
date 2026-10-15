@@ -1,0 +1,11 @@
+nmpc_controller:
+  ros__parameters:
+    use_sim_time: true
+    mass: 0.50                    # same value as the driver and the cascaded controller
+    rate_hz: 100.0
+    thrust_min: 0.5               # [N]
+    thrust_max: 9.81              # [N], thrust-to-weight 2, same limit as the cascaded controller
+    max_rate: [6.0, 6.0, 3.0]     # [rad/s], same limits as the cascaded controller
+    disturbance_observer: true    # external acceleration estimate passed to the model
+    observer_time_constant: 0.3   # [s]
+    max_disturbance: 4.0          # [m/s^2]

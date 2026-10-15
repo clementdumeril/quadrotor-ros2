@@ -11,10 +11,11 @@ setup(
         ("share/" + package_name, ["package.xml"]),
     ],
     install_requires=["setuptools"],
+    tests_require=["pytest"],
     zip_safe=True,
     maintainer="Clément Dumeril",
     maintainer_email="clementdumeril@gmail.com",
-    description="Mission layer (takeoff, land, go_to action, teleop) for the quadrotor stack.",
+    description="Mission layer (takeoff, land, go_to and follow_trajectory actions, teleop) for the quadrotor stack.",
     license="MIT",
     entry_points={
         "console_scripts": [

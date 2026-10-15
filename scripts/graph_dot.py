@@ -8,12 +8,12 @@ import time
 import rclpy
 from rclpy.node import Node
 
-SKIP_NODES = {"graph_dot", "rqt_gui_py_node", "_ros2cli_daemon"}
+SKIP_NODES = {"graph_dot", "rqt_gui_py_node", "_ros2cli_daemon", "benchmark", "flight_test"}
 SKIP_TOPICS = {"/parameter_events", "/rosout"}
 
 rclpy.init()
 me = Node("graph_dot")
-time.sleep(2.0)  # let discovery settle
+time.sleep(6.0)  # let discovery settle
 
 lines = ["digraph ros {", "  rankdir=LR; node [fontname=Helvetica, fontsize=11];"]
 topics = set()
@@ -38,8 +38,9 @@ for t in topics:
     if "/_action/" in t:
         continue
     lines.append(f'  "{t}" [shape=box, style=filled, fillcolor="#e8f3e3"];')
-lines.append('  "/quad/go_to" [shape=doubleoctagon, style=filled, fillcolor="#f6d6d6"];')
-lines.append('  "/quad/go_to" -> "/mission" [style=dashed, label="action"];')
+for action in ("/quad/go_to", "/quad/follow_trajectory"):
+    lines.append(f'  "{action}" [shape=doubleoctagon, style=filled, fillcolor="#f6d6d6"];')
+    lines.append(f'  "{action}" -> "/mission" [style=dashed, label="action"];')
 lines.append("}")
 print("\n".join(l for l in lines if "/_action/" not in l))
 rclpy.shutdown()

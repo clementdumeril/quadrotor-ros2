@@ -6,3 +6,10 @@ __pycache__/
 .vscode/
 .idea/
 logs/
+results/benchmark/runs/
+src/quad_control/nmpc/quadrotor_ocp.json
+# acados output not used by the CMake build (and holding machine paths)
+src/quad_control/nmpc/c_generated_code/Makefile
+src/quad_control/nmpc/c_generated_code/*.pxd
+src/quad_control/nmpc/c_generated_code/main_*.c
+src/quad_control/nmpc/c_generated_code/acados_sim_solver_*

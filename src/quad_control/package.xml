@@ -3,7 +3,7 @@
 <package format="3">
   <name>quad_control</name>
   <version>0.1.0</version>
-  <description>Quadrotor controllers that output collective thrust and body rates.</description>
+  <description>Quadrotor controllers that output collective thrust and body rates: a cascaded geometric controller and a nonlinear MPC (acados).</description>
   <maintainer email="clementdumeril@gmail.com">Clément Dumeril</maintainer>
   <license>MIT</license>
 
@@ -11,9 +11,12 @@
   <depend>rclcpp</depend>
   <depend>nav_msgs</depend>
   <depend>geometry_msgs</depend>
+  <depend>std_msgs</depend>
   <depend>std_srvs</depend>
   <depend>quad_interfaces</depend>
   <depend>eigen</depend>
+
+  <test_depend>ament_cmake_gtest</test_depend>
 
   <export>
     <build_type>ament_cmake</build_type>

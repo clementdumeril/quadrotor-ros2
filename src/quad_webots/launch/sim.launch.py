@@ -1,6 +1,7 @@
 """Webots + the whole control stack.
 
-    ros2 launch quad_webots sim.launch.py            # simulator, driver, controller, mission
+    ros2 launch quad_webots sim.launch.py                   # simulator, driver, cascaded controller, mission
+    ros2 launch quad_webots sim.launch.py controller:=nmpc  # the nonlinear MPC instead
     ros2 launch quad_webots sim.launch.py rviz:=true
 """
 import os
@@ -13,7 +14,7 @@ from launch.actions import DeclareLaunchArgument, EmitEvent, RegisterEventHandle
 from launch.conditions import IfCondition
 from launch.event_handlers import OnProcessExit
 from launch.events import Shutdown
-from launch.substitutions import LaunchConfiguration
+from launch.substitutions import EqualsSubstitution, LaunchConfiguration
 from launch_ros.actions import Node
 from webots_ros2_driver.webots_controller import WebotsController
 from webots_ros2_driver.webots_launcher import WebotsLauncher
@@ -35,7 +36,7 @@ def generate_launch_description():
     if host_ip:
         # Used by both the robot controller and the Ros2Supervisor (which publishes /clock).
         webots_utils.get_wsl_ip_address = lambda: host_ip
-    control_cfg = os.path.join(get_package_share_directory("quad_control"), "config", "position_controller.yaml")
+    control_share = get_package_share_directory("quad_control")
 
     # ros2_supervisor=True starts the node that publishes /clock (simulation time).
     webots = WebotsLauncher(world=os.path.join(share, "worlds", "arena.wbt"), ros2_supervisor=True)
@@ -47,8 +48,13 @@ def generate_launch_description():
         ],
         respawn=True,
     )
-    controller = Node(package="quad_control", executable="position_controller",
-                      parameters=[control_cfg], output="screen")
+    # Both controllers read /quad/reference and publish /quad/cmd/rates_thrust: run one of them.
+    controllers = [
+        Node(package="quad_control", executable=name, output="screen",
+             parameters=[os.path.join(control_share, "config", f"{name}.yaml")],
+             condition=IfCondition(EqualsSubstitution(LaunchConfiguration("controller"), key)))
+        for key, name in (("pid", "position_controller"), ("nmpc", "nmpc_controller"))
+    ]
     mission = Node(package="quad_mission", executable="mission",
                    parameters=[{"use_sim_time": True}], output="screen")
     rviz = Node(package="rviz2", executable="rviz2", arguments=["-d", os.path.join(share, "config", "quad.rviz")],
@@ -56,10 +62,11 @@ def generate_launch_description():
 
     return LaunchDescription([
         DeclareLaunchArgument("rviz", default_value="false"),
+        DeclareLaunchArgument("controller", default_value="pid", choices=["pid", "nmpc"]),
         webots,
         webots._supervisor,
         driver,
-        controller,
+        *controllers,
         mission,
         rviz,
         # Closing the Webots window stops everything.

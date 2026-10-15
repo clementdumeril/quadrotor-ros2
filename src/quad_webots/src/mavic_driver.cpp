@@ -103,9 +103,96 @@ void MavicDriver::init(webots_ros2_driver::WebotsNode * node,
       raw_received_ = true;
     });
 
+  disturbance_sub_ = node_->create_subscription<geometry_msgs::msg::Vector3>(
+    "/quad/disturbance/force", 10, [this](const geometry_msgs::msg::Vector3::SharedPtr m) {
+      disturbance_ = Eigen::Vector3d(m->x, m->y, m->z);
+    });
+  // A path on the Webots host (e.g. C:/Users/me/flight.mp4) starts recording; an empty string stops it.
+  record_sub_ = node_->create_subscription<std_msgs::msg::String>(
+    "/quad/record", 10, [this](const std_msgs::msg::String::SharedPtr m) {
+      if (!m->data.empty() && !recording_) {
+        startRecording(m->data);
+      } else if (m->data.empty() && recording_) {
+        wb_supervisor_movie_stop_recording();
+        recording_ = false;
+        RCLCPP_INFO(node_->get_logger(), "Recording stopped");
+      }
+    });
+
+  setpoint_sub_ = node_->create_subscription<geometry_msgs::msg::PoseStamped>(
+    "/quad/setpoint", 10, [this](const geometry_msgs::msg::PoseStamped::SharedPtr m) {
+      setpoint_ = Eigen::Vector3d(m->pose.position.x, m->pose.position.y, m->pose.position.z);
+    });
+  view_position_ = node_->declare_parameter("record_view_position", std::vector<double>{0.0, -6.2, 3.6});
+  view_target_ = node_->declare_parameter("record_view_target", std::vector<double>{0.0, 0.3, 1.2});
+
   RCLCPP_INFO(node_->get_logger(),
               "Mavic driver ready: step %.1f ms, hover thrust %.2f N, max %.2f N, motor time constant %.0f ms",
               dt_ * 1e3, mass_ * kGravity, 4.0 * mixer_->maxThrustPerRotor(), motor_tau_ * 1e3);
+}
+
+void MavicDriver::startRecording(const std::string & file)
+{
+  // Fixed overview camera looking at the flight area (the world's camera follows the drone).
+  WbFieldRef children = wb_supervisor_node_get_field(wb_supervisor_node_get_root(), "children");
+  for (int i = 0; i < wb_supervisor_field_get_count(children); ++i) {
+    WbNodeRef n = wb_supervisor_field_get_mf_node(children, i);
+    if (wb_supervisor_node_get_type(n) != WB_NODE_VIEWPOINT) {
+      continue;
+    }
+    const Eigen::Vector3d pos(view_position_.at(0), view_position_.at(1), view_position_.at(2));
+    const Eigen::Vector3d target(view_target_.at(0), view_target_.at(1), view_target_.at(2));
+    Eigen::Matrix3d R;  // Webots viewpoint: looks along its x axis, z up
+    R.col(0) = (target - pos).normalized();
+    R.col(1) = Eigen::Vector3d::UnitZ().cross(R.col(0)).normalized();
+    R.col(2) = R.col(0).cross(R.col(1));
+    const Eigen::AngleAxisd aa(R);
+    const double position[3] = {pos.x(), pos.y(), pos.z()};
+    const double rotation[4] = {aa.axis().x(), aa.axis().y(), aa.axis().z(), aa.angle()};
+    wb_supervisor_field_set_sf_string(wb_supervisor_node_get_field(n, "follow"), "");
+    wb_supervisor_field_set_sf_vec3f(wb_supervisor_node_get_field(n, "position"), position);
+    wb_supervisor_field_set_sf_rotation(wb_supervisor_node_get_field(n, "orientation"), rotation);
+  }
+  // Two paths, refilled from scratch at each recording. Webots draws lines one pixel wide, so
+  // each path is kTrailLayers polylines a few millimetres apart, which reads as a thicker line.
+  const char * colors[2] = {"0.15 0.15 0.15", "0.16 0.47 0.84"};
+  for (int k = 0; k < 2 * kTrailLayers; ++k) {
+    if (trail_nodes_[k]) {
+      wb_supervisor_node_remove(trail_nodes_[k]);
+    }
+    const std::string def = "QUAD_TRAIL_" + std::to_string(k);
+    const char * color = colors[k / kTrailLayers];
+    const std::string shape = "DEF " + def + " Shape { appearance Appearance { material Material { diffuseColor " +
+                              color + " emissiveColor " + color +
+                              " } } geometry IndexedLineSet { coord Coordinate { point [ ] } coordIndex [ ] } "
+                              "castShadows FALSE }";
+    wb_supervisor_field_import_mf_node_from_string(children, -1, shape.c_str());
+    trail_nodes_[k] = wb_supervisor_node_get_from_def(def.c_str());
+    WbNodeRef geometry = wb_supervisor_field_get_sf_node(wb_supervisor_node_get_field(trail_nodes_[k], "geometry"));
+    WbNodeRef coord = wb_supervisor_field_get_sf_node(wb_supervisor_node_get_field(geometry, "coord"));
+    trail_points_[k] = wb_supervisor_node_get_field(coord, "point");
+    trail_index_[k] = wb_supervisor_node_get_field(geometry, "coordIndex");
+  }
+  trail_count_ = 0;
+  wb_supervisor_movie_start_recording(file.c_str(), 1280, 720, 0, 90, 1, false);
+  recording_ = true;
+  RCLCPP_INFO(node_->get_logger(), "Recording the 3D view to %s", file.c_str());
+}
+
+void MavicDriver::updateTrails()
+{
+  // One point every 5 steps (20 ms); the reference trail only once a setpoint has arrived.
+  if (!recording_ || ++trail_tick_ % 5 != 0 || !trail_points_[0] || std::isnan(setpoint_.x())) {
+    return;
+  }
+  for (int k = 0; k < 2 * kTrailLayers; ++k) {
+    const Eigen::Vector3d c = (k < kTrailLayers ? setpoint_ : p_) +
+                              Eigen::Vector3d(0.0, 0.0, 0.004 * (k % kTrailLayers - kTrailLayers / 2));
+    const double point[3] = {c.x(), c.y(), c.z()};
+    wb_supervisor_field_insert_mf_vec3f(trail_points_[k], -1, point);
+    wb_supervisor_field_insert_mf_int32(trail_index_[k], -1, trail_count_);
+  }
+  ++trail_count_;
 }
 
 void MavicDriver::readState()
@@ -205,6 +292,10 @@ void MavicDriver::applyRotorForces(const std::array<double, 4> & commanded)
   }
   const double torque[3] = {0.0, 0.0, yaw_torque};
   wb_supervisor_node_add_torque(self_, torque, true);
+  if (disturbance_.squaredNorm() > 0.0) {  // test input, world frame, at the centre of mass
+    const double f[3] = {disturbance_.x(), disturbance_.y(), disturbance_.z()};
+    wb_supervisor_node_add_force(self_, f, false);
+  }
 }
 
 void MavicDriver::step()
@@ -218,7 +309,11 @@ void MavicDriver::step()
     ground_z_ = p_.z();
   }
   const rclcpp::Time now = node_->get_clock()->now();
-  publishState(now);
+  // Measurements are stamped with the Webots time of this step. The node clock follows /clock,
+  // which can arrive a step late: then two consecutive samples shared a stamp, a 4 ms error
+  // that is 2 cm at 5 m/s and corrupts finite differences of the velocity.
+  publishState(rclcpp::Time(static_cast<int64_t>(std::llround(wb_robot_get_time() * 1e9)), RCL_ROS_TIME));
+  updateTrails();
 
   std::array<double, 4> speeds{0.0, 0.0, 0.0, 0.0};
   if (armed_) {

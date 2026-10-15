@@ -3,7 +3,7 @@
 <package format="3">
   <name>quad_mission</name>
   <version>0.1.0</version>
-  <description>Mission layer (takeoff, land, go_to action, teleop) for the quadrotor stack.</description>
+  <description>Mission layer (takeoff, land, go_to and follow_trajectory actions, teleop) for the quadrotor stack.</description>
   <maintainer email="clementdumeril@gmail.com">Clément Dumeril</maintainer>
   <license>MIT</license>
 
@@ -13,6 +13,8 @@
   <exec_depend>std_srvs</exec_depend>
   <exec_depend>quad_interfaces</exec_depend>
   <exec_depend>python3-numpy</exec_depend>
+
+  <test_depend>python3-pytest</test_depend>
 
   <export>
     <build_type>ament_python</build_type>
