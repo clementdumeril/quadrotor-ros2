@@ -25,7 +25,7 @@ Figure eight, 4 m × 2 m, top speed 2 to 5 m/s, error against the exact path. Ne
 
 ![Cascaded PID and NMPC on the same figure eight at 5 m/s in gusty wind](docs/pid_vs_nmpc_wind.gif)
 
-Same flight, wind and camera for both, from the start of the 5 m/s lap: reference in black, flown path in blue.
+A rerun of the 5 m/s wind case, same wind and camera for both, from the start of the fast lap: reference in black, flown path in blue (7.2 vs 3.1 cm RMSE in this run, 7.3 vs 3.1 in the table).
 
 ![Top view and position error at 5 m/s](docs/benchmark_paths.png)
 
