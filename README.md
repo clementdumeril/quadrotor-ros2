@@ -23,6 +23,10 @@ Figure eight, 4 m × 2 m, top speed 2 to 5 m/s, error against the exact path. Ne
 | Hidden payload, +20 % weight | 4 m/s | 0.9 / 1.6 cm | 0.6 / 1.0 cm | 0.49 / 0.90 / 1.68 ms |
 | Hidden payload, +20 % weight | 5 m/s | 1.9 / 3.6 cm | 1.1 / 2.2 cm | 0.53 / 1.02 / 2.82 ms |
 
+![Cascaded PID and NMPC on the same figure eight at 5 m/s in gusty wind](docs/pid_vs_nmpc_wind.gif)
+
+Same flight, wind and camera for both, from the start of the 5 m/s lap: reference in black, flown path in blue.
+
 ![Top view and position error at 5 m/s](docs/benchmark_paths.png)
 
 ![RMSE against top speed](docs/benchmark_rmse.png)
