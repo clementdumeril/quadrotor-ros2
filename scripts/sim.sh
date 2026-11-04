@@ -4,5 +4,5 @@ set -e
 source /opt/ros/jazzy/setup.bash
 source ~/quad_ws/install/setup.bash
 # Webots installed per-user on Windows; webots_ros2 looks for it here from WSL.
-export WEBOTS_HOME="${WEBOTS_HOME:-/mnt/c/Users/PC/AppData/Local/Programs/Webots}"
+export WEBOTS_HOME="${WEBOTS_HOME:-/mnt/c/Users/$(cmd.exe /c "echo %USERNAME%" 2>/dev/null | tr -d '\r')/AppData/Local/Programs/Webots}"
 exec ros2 launch quad_webots sim.launch.py "$@"
