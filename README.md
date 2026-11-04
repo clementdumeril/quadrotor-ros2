@@ -1,100 +1,103 @@
-# Quadrotor control in ROS 2 and Webots: nonlinear MPC vs. cascaded control
+# quadrotor-ros2: nonlinear MPC vs. cascaded geometric control in ROS 2 and Webots
 
-![NMPC flying a figure eight at 5 m/s in gusty wind](docs/nmpc_figure_eight.gif)
+[Benchmark data](results/benchmark) · [Formulation and tuning](docs/FORMULATION.md) ·
+[Checks and reproduction](docs/reproduce.md) · [Full ROS graph](docs/ros_graph.png)
 
-I fly a DJI Mavic 2 Pro in Webots through ROS 2 Jazzy with my own C++ stack and compare two controllers that both output collective thrust and body rates:
+![Overview: mission, NMPC or cascaded controller and Webots driver as ROS 2 nodes with their topics, and the 5 m/s figure eight in gusty wind](docs/figures/overview.png)
 
-- `nmpc_controller`: nonlinear MPC, 20 steps over 1 s, solved at 100 Hz by acados, with a disturbance observer.
-- `position_controller`: cascaded PID with geometric attitude control (Lee, Leok & McClamroch 2010) and body-rate feedforward from the reference jerk (Mellinger & Kumar 2011).
+A C++ ROS 2 Jazzy stack that flies a simulated DJI Mavic 2 Pro in Webots with two interchangeable controllers, an
+acados NMPC solved in 0.5 ms and a cascaded geometric controller. On a 5 m/s figure eight in gusty wind the NMPC
+halves the tracking error (3.1 vs 7.3 cm RMSE, one run per case). A personal project from October 2026, in
+simulation only.
+
+## Method
+
+Both controllers read `/quad/odom` and the reference and publish collective thrust and body rates on
+`/quad/cmd/rates_thrust`, the split PX4 uses, so they can be swapped without touching the simulator side. A Webots
+driver plugin closes the body-rate loop and models the rotors. The NMPC has 10 states (position, velocity,
+quaternion) and 4 inputs (thrust, body rates), with the external acceleration estimated by a disturbance observer
+as a parameter; one SQP-RTI iteration per 10 ms step over a 1 s horizon. The baseline is P on position, PI on
+velocity, geometric attitude control (Lee et al. 2010) with tilt capped at 60°, and body-rate feedforward from the
+reference jerk (Mellinger and Kumar 2011). Equations, weights and gains: [docs/FORMULATION.md](docs/FORMULATION.md).
+
+All code in `src/` and `scripts/` is mine, except the acados C code in `src/quad_control/nmpc/c_generated_code/`,
+which [`generate_solver.py`](src/quad_control/nmpc/generate_solver.py) generates.
 
 ## Results
 
-Figure eight, 4 m × 2 m, top speed 2 to 5 m/s, position error against the analytic reference p(t) over the laps at top speed (one run per cell). Neither controller knows about the wind or payload.
+Figure eight, 4 m x 2 m, position error against the analytic reference over the laps at top speed, one run per cell.
+Neither controller knows about the wind or the payload; both get the same mass, reference, thrust limit and body-rate
+limits. Source: [`benchmark_pid.json`](results/benchmark/benchmark_pid.json),
+[`benchmark_nmpc.json`](results/benchmark/benchmark_nmpc.json).
 
-| Scenario | Top speed | Cascaded PID: RMSE / max error | NMPC: RMSE / max error | NMPC solve time: median / p99 / max |
+| Scenario | Top speed | Cascaded: RMSE / max [cm] | NMPC: RMSE / max [cm] | NMPC solve: median / p99 [ms] |
 |---|---|---|---|---|
-| Nominal | 2 m/s | 0.1 / 0.4 cm | 0.2 / 0.3 cm | 0.49 / 1.00 / 2.43 ms |
-| Nominal | 4 m/s | 1.0 / 1.9 cm | 0.7 / 1.6 cm | 0.48 / 0.78 / 2.20 ms |
-| Nominal | 5 m/s | 2.3 / 4.1 cm | 1.5 / 3.1 cm | 0.49 / 1.16 / 1.43 ms |
-| Wind 1 N + gusts ±0.5 N | 2 m/s | 7.1 / 10.8 cm | 3.6 / 5.1 cm | 0.46 / 0.79 / 1.62 ms |
-| Wind 1 N + gusts ±0.5 N | 4 m/s | 6.9 / 10.5 cm | 3.2 / 4.9 cm | 0.48 / 0.89 / 5.99 ms |
-| Wind 1 N + gusts ±0.5 N | 5 m/s | 7.3 / 10.8 cm | 3.1 / 4.6 cm | 0.50 / 0.86 / 1.46 ms |
-| Hidden payload, +20 % weight | 2 m/s | 1.4 / 2.4 cm | 0.2 / 0.3 cm | 0.49 / 0.81 / 2.12 ms |
-| Hidden payload, +20 % weight | 4 m/s | 0.9 / 1.6 cm | 0.6 / 1.0 cm | 0.49 / 0.90 / 1.68 ms |
-| Hidden payload, +20 % weight | 5 m/s | 1.9 / 3.6 cm | 1.1 / 2.2 cm | 0.53 / 1.02 / 2.82 ms |
+| Nominal | 2 m/s | 0.1 / 0.4 | 0.2 / 0.3 | 0.49 / 1.00 |
+| Nominal | 5 m/s | 2.3 / 4.1 | 1.5 / 3.1 | 0.49 / 1.16 |
+| Wind 1 N + gusts ±0.5 N | 2 m/s | 7.1 / 10.8 | **3.6 / 5.1** | 0.46 / 0.79 |
+| Wind 1 N + gusts ±0.5 N | 5 m/s | 7.3 / 10.8 | **3.1 / 4.6** | 0.50 / 0.86 |
+| Hidden payload, +20 % weight | 2 m/s | 1.4 / 2.4 | 0.2 / 0.3 | 0.49 / 0.81 |
+| Hidden payload, +20 % weight | 5 m/s | 1.9 / 3.6 | 1.1 / 2.2 | 0.53 / 1.02 |
 
-![Cascaded PID and NMPC on the same figure eight at 5 m/s in gusty wind](docs/pid_vs_nmpc_wind.gif)
+The 4 m/s runs are in the JSON files. In wind the observer feeds the wind estimate into the model, while the PI
+integrator waits for an error to build up. Without disturbance the two are close; thrust never saturated. More
+findings and the checks behind the numbers: [docs/reproduce.md](docs/reproduce.md).
 
-A rerun of the 5 m/s wind case, same wind and camera for both, from the start of the fast lap: reference in black, flown path in blue (7.2 vs 3.1 cm RMSE in this run, not kept in `results/`; 7.3 vs 3.1 in the table).
+![Cascaded PID (top) and NMPC (bottom) on the same figure eight at 5 m/s in gusty wind: reference in black, flown path in blue](docs/pid_vs_nmpc_wind.gif)
 
-![Top view and position error at 5 m/s](docs/benchmark_paths.png)
+*Same 5 m/s figure eight, same wind and camera. A separate rerun recorded for the video: its log is not in
+`results/`, and the table uses the benchmark run.*
 
-![RMSE against top speed](docs/benchmark_rmse.png)
+![Top view of the top-speed laps and position error over time at 5 m/s](docs/benchmark_paths.png)
 
-In gusty wind the NMPC halves the error at every speed: its observer feeds the wind estimate into the model, while the integrator waits for an error. Otherwise both stay within about 1.5 cm RMSE up to 4 m/s. Without disturbance the NMPC pulls ahead only at high speed, where tilt reaches 43 to 59° (thrust never saturated in any run), as Sun et al. (T-RO 2022) found. With the hidden payload its observer also removes the offset the PID shows at 2 m/s (0.2 vs 1.4 cm). It runs in 0.46 to 0.53 ms median on a 2016 laptop CPU, against a 10 ms period.
+## Install and quick start
 
-Both controllers get the same mass, reference, thrust limit and body-rate limits; the cascaded controller also caps tilt at 60°, while the NMPC has no tilt constraint (it reached 62° in the 5 m/s wind case). Without the body-rate feedforward the cascaded controller was 49 cm off at 4 m/s instead of 1 cm (an earlier run, not kept in `results/`), which would have made the NMPC look far better than it is.
-
-Limits: one simulator, one drone, no sensor noise, a close model. Real flight will be worse for both.
-
-### Three bugs that changed the numbers
-
-- Odometry was stamped one simulation step late (4 ms is 2 cm at 5 m/s). It now uses Webots time.
-- rclpy accepted `laps=2` (an int) for a `float64` field and the server received about 0, so the first runs flew no lap at top speed. The benchmark now parses it as a float.
-- SIGINT doesn't stop a background `ros2 launch`, so one run had both controllers driving the drone. `run_benchmark.sh` now stops each stack with SIGTERM.
-
-## Notes
-
-![ROS 2 graph](docs/ros_graph.png)
-
-Webots' propeller model lagged motor commands by 1 to 3 s in my tests (`scripts/motor_ident.py`), so the driver models the rotors itself: first-order motor speed (30 ms), thrust and torque applied through the supervisor API.
-
-## Build and run
-
-You need ROS 2 Jazzy in WSL2 (Ubuntu 24.04), `ros-jazzy-webots-ros2`, Webots R2025a on Windows, and for the NMPC the acados libraries:
+Tested on WSL2 Ubuntu 24.04 with ROS 2 Jazzy and `ros-jazzy-webots-ros2`, Webots R2025a on Windows, acados v0.5.5
+and CasADi 3.7.2 (the version that generated the committed solver code). Without acados only the NMPC is skipped;
+the solver's C code is committed, so the build does not need Python.
 
 ```bash
 git clone --branch v0.5.5 --depth 1 --recurse-submodules --shallow-submodules https://github.com/acados/acados.git ~/acados
 cd ~/acados && mkdir build && cd build
 cmake -DACADOS_WITH_QPOASES=OFF -DACADOS_INSTALL_DIR=$HOME/acados .. && make install -j4
-```
 
-Without acados, only the NMPC is skipped. The solver's C code is generated by `src/quad_control/nmpc/generate_solver.py` and committed, so the build compiles it without Python.
-
-```bash
 mkdir -p ~/quad_ws && cd ~/quad_ws
 ln -s /path/to/quadrotor-ros2/src src     # or clone the repo into src/
 source /opt/ros/jazzy/setup.bash
-colcon build --symlink-install
-colcon test && colcon test-result --verbose
-source install/setup.bash
-ros2 launch quad_webots sim.launch.py controller:=nmpc    # or controller:=pid; add rviz:=true for RViz
+colcon build --symlink-install && colcon test && colcon test-result --verbose
+ros2 launch quad_webots sim.launch.py controller:=nmpc    # or controller:=pid
 ```
 
-Then, in another terminal:
+The Windows firewall must let WSL reach Webots on TCP 1234. Takeoff, trajectory and disturbance commands:
+[docs/reproduce.md](docs/reproduce.md#usage).
 
-```bash
-ros2 service call /quad/takeoff std_srvs/srv/Trigger
-ros2 action send_goal --feedback /quad/follow_trajectory quad_interfaces/action/FollowTrajectory "{shape: lemniscate, size: 2.0, max_speed: 4.0, laps: 2.0, start: {x: 0.0, y: 0.0, z: 1.5}}"
-ros2 topic pub -r 20 /quad/disturbance/force geometry_msgs/msg/Vector3 "{x: 1.0}"    # 1 N of wind
-ros2 service call /quad/land std_srvs/srv/Trigger
-```
+## Code structure
 
-Benchmark (about 35 minutes per controller):
+| Component | File | Role |
+|---|---|---|
+| NMPC | [`generate_solver.py`](src/quad_control/nmpc/generate_solver.py), [`nmpc_controller.cpp`](src/quad_control/src/nmpc_controller.cpp) | OCP in acados; ROS 2 node with the disturbance observer |
+| Cascaded baseline | [`position_controller.cpp`](src/quad_control/src/position_controller.cpp) | P, PI, geometric attitude, jerk feedforward |
+| Reference | [`reference.hpp`](src/quad_control/include/quad_control/reference.hpp) | reference interpolation and flatness attitude, shared by both |
+| Driver plugin | [`mavic_driver.cpp`](src/quad_webots/src/mavic_driver.cpp), [`mixer.cpp`](src/quad_webots/src/mixer.cpp) | state, rate loop, mixer, rotor model, failsafe, disturbances |
+| Messages | [`quad_interfaces`](src/quad_interfaces) | `RatesThrust`, `ReferenceTrajectory`, `FollowTrajectory`, `GoTo` |
+| Mission | [`mission.py`](src/quad_mission/quad_mission/mission.py), [`trajectory.py`](src/quad_mission/quad_mission/trajectory.py) | takeoff, landing, analytic figure eight and circle |
+| Benchmark | [`scripts/`](scripts) | runs, metrics, figures |
 
-```bash
-bash scripts/run_benchmark.sh C:/Users/me/flight.mp4
-python3 scripts/plot_benchmark.py
-```
+## Limitations
 
-The Windows firewall must let WSL reach Webots on TCP 1234.
+- One simulator, one drone, no sensor noise or state estimator: the controllers see the Webots state.
+- One run per cell and deterministic disturbances, so the run-to-run spread is not measured.
+- The NMPC model is close to the simulated drone: same mass, and no aerodynamic drag anywhere.
+- The NMPC has no tilt constraint and reached 62° in the 5 m/s wind case; the cascaded controller is capped at 60°.
+- The driver applies its own first-order rotor model (30 ms), since the Webots propeller model lagged by seconds in my
+  tests. No PX4 SITL and no real flight.
 
-## References
+## References and credits
 
 - T. Lee, M. Leok and N. H. McClamroch, "Geometric tracking control of a quadrotor UAV on SE(3)", IEEE CDC, 2010.
 - D. Mellinger and V. Kumar, "Minimum snap trajectory generation and control for quadrotors", IEEE ICRA, 2011.
+- M. Kamel, M. Burri and R. Siegwart, "Linear vs nonlinear MPC for trajectory tracking applied to rotary wing micro aerial vehicles", IFAC World Congress, 2017.
 - S. Sun, A. Romero, P. Foehn, E. Kaufmann and D. Scaramuzza, "A comparative study of nonlinear MPC and differential-flatness-based control for quadrotor agile flight", IEEE T-RO, 2022.
+- [acados](https://github.com/acados/acados) (BSD-2), [CasADi](https://web.casadi.org) (LGPL), [Webots](https://cyberbotics.com) and [webots_ros2](https://github.com/cyberbotics/webots_ros2) (Apache-2.0), with Cyberbotics' Mavic 2 Pro model.
 
-## License
-
-MIT
+MIT license ([LICENSE](LICENSE)). Citation metadata: [CITATION.cff](CITATION.cff).
