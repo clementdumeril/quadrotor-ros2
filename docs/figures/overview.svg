@@ -1,0 +1,91 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="620" viewBox="0 0 1200 620" font-family="Arial, Helvetica, sans-serif">
+  <defs>
+    <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#444"/>
+    </marker>
+  </defs>
+  <rect x="1" y="1" width="1198" height="618" rx="16" fill="#FFFFFF" stroke="#D0D7DE" stroke-width="1.5"/>
+
+  <!-- zones -->
+  <g fill="none" stroke="#8A9AA8" stroke-width="1.2" stroke-dasharray="6 4">
+    <rect x="24" y="24" width="176" height="320" rx="10"/>
+    <rect x="352" y="24" width="260" height="320" rx="10"/>
+    <rect x="800" y="24" width="376" height="320" rx="10"/>
+  </g>
+  <g font-size="15" fill="#5A6875" letter-spacing="1.2">
+    <text x="40" y="52">MISSION</text>
+    <text x="368" y="52">CONTROLLER, 100 HZ</text>
+    <text x="816" y="52">SIMULATOR</text>
+  </g>
+
+  <!-- mission node -->
+  <text x="112" y="92" font-size="16" fill="#5A6875" text-anchor="middle">figure eight or</text>
+  <text x="112" y="114" font-size="16" fill="#5A6875" text-anchor="middle">circle, from an</text>
+  <text x="112" y="136" font-size="16" fill="#5A6875" text-anchor="middle">action goal</text>
+  <ellipse cx="112" cy="200" rx="76" ry="44" fill="#FBE5CF" stroke="#C97A2B" stroke-width="1.5"/>
+  <text x="112" y="198" font-size="22" fill="#15202A" text-anchor="middle">mission</text>
+  <text x="112" y="222" font-size="15" fill="#5A6875" text-anchor="middle">50 Hz</text>
+
+  <!-- reference topic -->
+  <line x1="188" y1="200" x2="366" y2="200" stroke="#444" stroke-width="2" marker-end="url(#ah)"/>
+  <text x="276" y="190" font-size="15" fill="#15202A" text-anchor="middle">/quad/reference</text>
+  <text x="276" y="222" font-size="15" fill="#5A6875" text-anchor="middle">p, v, a, next 1.5 s</text>
+
+  <!-- controllers -->
+  <rect x="368" y="104" width="228" height="136" rx="10" fill="#E2EBFA" stroke="#1F5FBF" stroke-width="1.5"/>
+  <text x="482" y="144" font-size="24" fill="#15202A" text-anchor="middle">acados NMPC</text>
+  <text x="482" y="172" font-size="16" fill="#5A6875" text-anchor="middle">N = 20 × 50 ms, SQP-RTI</text>
+  <text x="482" y="196" font-size="16" fill="#5A6875" text-anchor="middle">+ disturbance observer</text>
+  <text x="482" y="222" font-size="16" fill="#1F5FBF" text-anchor="middle">0.5 ms median solve</text>
+
+  <rect x="368" y="264" width="228" height="64" rx="10" fill="#F1F4F6" stroke="#8A9AA8" stroke-width="1.5"/>
+  <text x="482" y="292" font-size="20" fill="#15202A" text-anchor="middle">or cascaded PID</text>
+  <text x="482" y="315" font-size="15" fill="#5A6875" text-anchor="middle">geometric attitude, jerk FF</text>
+
+  <!-- rates_thrust topic -->
+  <line x1="596" y1="152" x2="814" y2="152" stroke="#444" stroke-width="2" marker-end="url(#ah)"/>
+  <text x="706" y="142" font-size="15" fill="#15202A" text-anchor="middle">/quad/cmd/rates_thrust</text>
+  <text x="706" y="174" font-size="15" fill="#5A6875" text-anchor="middle">thrust, body rates</text>
+
+  <!-- driver + webots -->
+  <rect x="816" y="96" width="160" height="128" rx="10" fill="#DCF1EE" stroke="#0D7A6F" stroke-width="1.5"/>
+  <text x="896" y="132" font-size="20" fill="#15202A" text-anchor="middle">mavic_driver</text>
+  <text x="896" y="160" font-size="16" fill="#5A6875" text-anchor="middle">rate PI, mixer,</text>
+  <text x="896" y="182" font-size="16" fill="#5A6875" text-anchor="middle">rotor model</text>
+  <text x="896" y="208" font-size="16" fill="#0D7A6F" text-anchor="middle">250 Hz</text>
+
+  <rect x="1000" y="80" width="160" height="176" rx="10" fill="#DCF1EE" stroke="#0D7A6F" stroke-width="1.5"/>
+  <image href="ov_drone.png" x="1020" y="92" width="120" height="85"/>
+  <rect x="1020" y="92" width="120" height="85" rx="6" fill="none" stroke="#C5CDD5"/>
+  <text x="1080" y="206" font-size="20" fill="#15202A" text-anchor="middle">Webots</text>
+  <text x="1080" y="230" font-size="16" fill="#5A6875" text-anchor="middle">Mavic 2 Pro, 4 ms</text>
+  <line x1="976" y1="144" x2="998" y2="144" stroke="#444" stroke-width="2" marker-end="url(#ah)"/>
+  <line x1="1000" y1="196" x2="978" y2="196" stroke="#444" stroke-width="2" marker-end="url(#ah)"/>
+
+  <rect x="1000" y="276" width="160" height="52" rx="10" fill="#FBE5CF" stroke="#C97A2B" stroke-width="1.5"/>
+  <text x="1080" y="308" font-size="18" fill="#15202A" text-anchor="middle">wind, payload</text>
+  <line x1="1080" y1="276" x2="1080" y2="258" stroke="#444" stroke-width="2" marker-end="url(#ah)"/>
+
+  <!-- odom return -->
+  <path d="M896,224 L896,376 L112,376 L112,246" stroke="#444" stroke-width="2" fill="none" stroke-dasharray="6 4" marker-end="url(#ah)"/>
+  <path d="M628,376 L628,224 L598,224" stroke="#444" stroke-width="2" fill="none" stroke-dasharray="6 4" marker-end="url(#ah)"/>
+  <text x="762" y="368" font-size="15" fill="#15202A" text-anchor="middle">/quad/odom, 250 Hz</text>
+  <text x="762" y="396" font-size="15" fill="#5A6875" text-anchor="middle">p, v, q, ω</text>
+
+  <!-- bottom band -->
+  <text x="40" y="440" font-size="15" fill="#5A6875" letter-spacing="1.2">5 M/S FIGURE EIGHT IN GUSTY WIND</text>
+  <text x="40" y="490" font-size="16" fill="#15202A">Cascaded</text>
+  <image href="ov_wind_pid.png" x="128" y="456" width="376" height="63"/>
+  <rect x="128" y="456" width="376" height="63" rx="6" fill="none" stroke="#C5CDD5"/>
+  <text x="40" y="566" font-size="16" fill="#1F5FBF">NMPC</text>
+  <image href="ov_wind_nmpc.png" x="128" y="532" width="376" height="63"/>
+  <rect x="128" y="532" width="376" height="63" rx="6" fill="none" stroke="#C5CDD5"/>
+
+  <image href="ov_error_wind.png" x="528" y="456" width="176" height="139"/>
+  <rect x="528" y="456" width="176" height="139" rx="6" fill="none" stroke="#C5CDD5"/>
+
+  <text x="744" y="496" font-size="36" font-weight="bold" fill="#B8461F">3.1 vs 7.3 cm</text>
+  <text x="744" y="524" font-size="16" fill="#15202A">position RMSE, NMPC vs cascaded, one run each</text>
+  <text x="744" y="552" font-size="16" fill="#5A6875">Nominal at 5 m/s: 1.5 vs 2.3 cm</text>
+  <text x="744" y="578" font-size="16" fill="#5A6875">Webots only, no real flight</text>
+</svg>
